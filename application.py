@@ -43,6 +43,7 @@ def fetch_material():
 
         while len(friends_batch) > 0:
             tweet = choice(friends_batch)
+            user = tweet.GetUser()
             material = analyze(tweet.GetText())
             if material:
                 return (user, material)
