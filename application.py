@@ -19,18 +19,12 @@ api = twitter.Api(
         cache = None
         )
 
-@app.route('/post_update')
-def post_update():
-    post = choice(list(open('messages.txt')))
-    api.PostUpdate(post)
-    return post
-
 FETCH_COUNT = 20
 FETCH_RETRY_MAX = 2
 MY_ID = 285389975
 
 @app.route('/fetch_material')
-def _fetch_material():
+def do_fetch_material():
     result = fetch_material()
     if result:
         user, material = result
@@ -39,16 +33,21 @@ def _fetch_material():
         return 'material not found'
 
 def fetch_material():
-    for retry in range(0, FETCH_RETRY_MAX):
-        batch = api.GetFriendsTimeline(count=FETCH_COUNT)
+    for retry in range(1, 1 + FETCH_RETRY_MAX):
+        batch = api.GetFriendsTimeline(count=FETCH_COUNT, page=retry)
+        friends_batch = []
         for tweet in batch:
             user = tweet.GetUser()
-            if user.GetId() == MY_ID:
-                continue
+            if user.GetId() != MY_ID:
+                friends_batch.append(tweet)
 
+        while len(friends_batch) > 0:
+            tweet = choice(friends_batch)
             material = analyze(tweet.GetText())
             if material:
-               return (user, material)
+                return (user, material)
+            else:
+                friends_batch.remove(tweet)
 
     return None
 
@@ -71,7 +70,7 @@ def analyze(text):
 
 
 @app.route('/fetch_and_post_material')
-def fetch_and_post_material():
+def do_fetch_and_post_material():
     result = fetch_material()
     if result:
         user, material = result
@@ -79,10 +78,11 @@ def fetch_and_post_material():
             status = api.PostUpdate(u'@%s はうんこカレーに「%s」を入れた' % (user.GetScreenName(), material))
             return status.GetText()
         except twitter.TwitterError, e:
-            return 'duplicated'
+            return 'duplicated: user @%s with material %s' % (user.GetScreenName(), material)
     else:
         return 'material not found'
 
+'''
 class DummyData(db.Model):
     name = db.StringProperty(required=True)
 
@@ -96,6 +96,7 @@ def post_data():
 def get_data():
     result = db.GqlQuery('SELECT * FROM DummyData')
     return repr(result.count())
+'''
 
 if __name__ == '__main__':
     app.run()
