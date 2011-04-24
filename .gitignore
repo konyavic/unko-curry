@@ -1,0 +1,13 @@
+# the key file
+apikey.py
+
+# libraries imported through symbolic link
+/werkzeug
+/jinja2
+/twitter.py
+/httplib2
+/oauth2
+
+# other
+*.pyc
+*.swp
