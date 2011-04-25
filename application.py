@@ -20,6 +20,7 @@ from history import History
 app = Flask(__name__)
 
 import user_management
+from user_management import CurryUser
 
 # TODO: should be placed in a proper scope
 logging.getLogger().setLevel(logging.DEBUG)
@@ -120,21 +121,34 @@ def do_fetch_and_post_material():
         material_str = u'、'.join(material_str_list)
         logging.debug('constructed material string %s' % material_str)
 
-        try:
-            status = api.PostUpdate(u'@%s はうんこカレーに%sを入れた' % (username, material_str))
-            logging.debug('posted %s' % status.GetText())
-            return status.GetText()
+        receiver_list = get_receiver_list(username)
+        update_history = []
+        for receiver in receiver_list:
+            try:
+                status = api.PostUpdate(u'@%s は @%s のカレーに%sを入れた' % (username, receiver.username, material_str))
+                logging.debug('posted %s' % status.GetText())
+            except twitter.TwitterError, e:
+                logging.debug('duplicated user %s with material %s', (username, repr(material_list)))
+            finally:
+                update_history.append(History(username=username, material=material))
 
-        except twitter.TwitterError, e:
-            logging.debug('duplicated user %s with material %s', (username, repr(material_list)))
-            return 'this post is duplicated'
-        
-        finally:
-            History(username=username, material=material).put()
+        db.put(update_history)
+        return 'posted'
 
     else:
         logging.debug('material not found')
         return 'material not found'
+
+def get_receiver_list(username):
+    user = CurryUser.all().filter('username = ', username)
+    if user.count() <= 0:
+        logging.error('no such user %s' % username)
+        return []
+
+    result = db.GqlQuery('SELECT * FROM SendList WHERE sender=:1', user[0])
+    receiver_list = [r.receiver for r in result]
+    logging.error('receivers of %s: %s' % (username, receiver_list))
+    return receiver_list
 
 if __name__ == '__main__':
     app.run()

@@ -13,5 +13,9 @@ handlers:
   script: app.py
   login: admin
 
+- url: /update_send_list
+  script: app.py
+  login: admin
+
 - url: /.*
   script: app.py
