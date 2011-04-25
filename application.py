@@ -88,9 +88,9 @@ def analyze(text):
     material_list = []
     for i in range(0, min(len(result), config.TWEET_MATERIAL_MAX)):
         key = choice(result.keys())
-        logging.debug('choose %s' % key)
+        logging.debug('choiced %s' % key)
         del result[key]
-        if is_material(key.encode('utf-8')):
+        if is_material(key):
             material_list.append(key)
 
     logging.debug('picked material %s' % repr(material_list))
@@ -98,9 +98,12 @@ def analyze(text):
     return material_list
 
 def is_material(keyword):
-    keyword = ''.join(keyword.split())
-    return not keyword.isalnum()
+    keyword = keyword.encode('utf-8')
+    for c in keyword:
+        if ord(c) > 128:
+            return True
 
+    return False
 
 @app.route('/fetch_and_post_material')
 def do_fetch_and_post_material():
@@ -111,14 +114,17 @@ def do_fetch_and_post_material():
         for material in material_list:
             material_str_list.append(u'「%s」' % material)
 
+        material_str = u'、'.join(material_str_list)
+        logging.debug('constructed material string %s' % material_str)
+
         try:
-            status = api.PostUpdate(u'@%s はうんこカレーに%sを入れた' % (username, '、'.join(material_str_list)))
+            status = api.PostUpdate(u'@%s はうんこカレーに%sを入れた' % (username, material_str))
             logging.debug('posted %s' % status.GetText())
             return status.GetText()
 
         except twitter.TwitterError, e:
-            logging.debug('duplicated user and material %s', (username, material))
-            return 'duplicated: user @%s with material %s' % (username, material)
+            logging.debug('duplicated user %s with material %s', (username, material))
+            return 'this post is duplicated'
         
         finally:
             History(username=username, material=material).put()
