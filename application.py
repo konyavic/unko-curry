@@ -19,6 +19,8 @@ from history import History
 
 app = Flask(__name__)
 
+import user_management
+
 # TODO: should be placed in a proper scope
 logging.getLogger().setLevel(logging.DEBUG)
 
@@ -32,6 +34,7 @@ api = twitter.Api(
 
 def fetch_material():
     for retry in range(1, 1 + config.FETCH_RETRY_MAX):
+        logging.debug('fetching tweets with count=%d, page=%d ...' % (config.FETCH_COUNT, retry))
         batch = api.GetFriendsTimeline(count=config.FETCH_COUNT, page=retry)
         friends_batch = []
 
@@ -123,7 +126,7 @@ def do_fetch_and_post_material():
             return status.GetText()
 
         except twitter.TwitterError, e:
-            logging.debug('duplicated user %s with material %s', (username, material))
+            logging.debug('duplicated user %s with material %s', (username, repr(material_list)))
             return 'this post is duplicated'
         
         finally:

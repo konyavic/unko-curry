@@ -9,6 +9,9 @@ handlers:
   script: app.py
   login: admin
 
+- url: /update_users
+  script: app.py
+  login: admin
+
 - url: /.*
   script: app.py
-#login: required

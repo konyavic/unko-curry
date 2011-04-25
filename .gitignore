@@ -4,7 +4,6 @@ apikey.py
 # libraries imported through symbolic link
 /werkzeug
 /jinja2
-/twitter.py
 /httplib2
 /oauth2
 
