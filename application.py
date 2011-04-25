@@ -2,12 +2,16 @@
 # -*- coding: utf-8 -*-
 
 import logging
+
 import twitter
 import simplejson as json
+
 import apikey
+import config
 
 from urllib import urlopen, urlencode
 from random import choice
+
 from flask import Flask
 from google.appengine.ext import db
 
@@ -25,28 +29,15 @@ api = twitter.Api(
         cache = None
         )
 
-FETCH_COUNT = 20
-FETCH_RETRY_MAX = 2
-MY_ID = 285389975
-
-@app.route('/fetch_material')
-def do_fetch_material():
-    result = fetch_material()
-    if result:
-        user, material = result
-        return u'@%s はうんこカレーに「%s」を入れた' % (user.GetScreenName(), material)
-    else:
-        return 'material not found'
-
 def fetch_material():
-    for retry in range(1, 1 + FETCH_RETRY_MAX):
-        batch = api.GetFriendsTimeline(count=FETCH_COUNT, page=retry)
+    for retry in range(1, 1 + config.FETCH_RETRY_MAX):
+        batch = api.GetFriendsTimeline(count=config.FETCH_COUNT, page=retry)
         friends_batch = []
 
         # exclude bot itself
         for tweet in batch:
             user = tweet.GetUser()
-            if user.GetId() != MY_ID:
+            if user.GetId() != config.MY_ID:
                 friends_batch.append(tweet)
 
         # analyze and get the material
@@ -77,12 +68,11 @@ def get_query(sentence):
             ('sentence', sentence)
             ]
 
-YAHOO_MA_URL = 'http://jlp.yahooapis.jp/KeyphraseService/V1/extract'
 
 def analyze(text):
     result = json.load(
             urlopen(
-                YAHOO_MA_URL + '?' + urlencode(get_query(text.encode('utf-8')))
+                config.YAHOO_KS_URL + '?' + urlencode(get_query(text.encode('utf-8')))
                 )
             )
     logging.debug('analyzed and  got %s' % repr(result))
@@ -106,6 +96,12 @@ def do_fetch_and_post_material():
     else:
         logging.debug('material not found')
         return 'material not found'
+
+def is_admin_user():
+    if users.get_current_user() != admin_user:
+        return False
+    else:
+        return True
 
 if __name__ == '__main__':
     app.run()
