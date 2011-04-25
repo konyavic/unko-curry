@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import logging
 import twitter
 import simplejson as json
 import apikey
@@ -13,6 +14,8 @@ from google.appengine.ext import db
 from history import History
 
 app = Flask(__name__)
+
+logging.getLogger().setLevel(logging.DEBUG)
 
 api = twitter.Api(
         consumer_key = apikey.CONSUMER_KEY, 
@@ -62,6 +65,7 @@ def check_dup(username, material):
     result = db.GqlQuery('SELECT * FROM History WHERE username=:1 AND material=:2', 
             username, material)
     if result.count() > 0:
+        logging.debug('duplicated user %s and material %s in history', (username, material))
         return True
     else:
         return False
@@ -81,6 +85,7 @@ def analyze(text):
                 YAHOO_MA_URL + '?' + urlencode(get_query(text.encode('utf-8')))
                 )
             )
+    logging.debug('analyzed and  got %s' % repr(result))
     return choice(result.keys())
 
 
@@ -91,29 +96,16 @@ def do_fetch_and_post_material():
         user, material = result
         try:
             status = api.PostUpdate(u'@%s はうんこカレーに「%s」を入れた' % (user.GetScreenName(), material))
+            logging.debug('posted %s' % status.GetText())
             return status.GetText()
         except twitter.TwitterError, e:
+            logging.debug('duplicated user and material %s', (user.GetScreenName(), material))
             return 'duplicated: user @%s with material %s' % (user.GetScreenName(), material)
         finally:
             History(username=user.GetScreenName(), material=material).put()
     else:
+        logging.debug('material not found')
         return 'material not found'
-
-'''
-class DummyData(db.Model):
-    name = db.StringProperty(required=True)
-
-@app.route('/post_data')
-def post_data():
-    data = DummyData(name='testtest')
-    data.put()
-    return 'ok'
-
-@app.route('/get_data')
-def get_data():
-    result = db.GqlQuery('SELECT * FROM DummyData')
-    return repr(result.count())
-'''
 
 if __name__ == '__main__':
     app.run()
