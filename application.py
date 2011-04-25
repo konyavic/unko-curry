@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 import twitter
@@ -8,6 +9,8 @@ from urllib import urlopen, urlencode
 from random import choice
 from flask import Flask
 from google.appengine.ext import db
+
+from history import History
 
 app = Flask(__name__)
 
@@ -36,21 +39,32 @@ def fetch_material():
     for retry in range(1, 1 + FETCH_RETRY_MAX):
         batch = api.GetFriendsTimeline(count=FETCH_COUNT, page=retry)
         friends_batch = []
+
+        # exclude bot itself
         for tweet in batch:
             user = tweet.GetUser()
             if user.GetId() != MY_ID:
                 friends_batch.append(tweet)
 
+        # analyze and get the material
         while len(friends_batch) > 0:
             tweet = choice(friends_batch)
             user = tweet.GetUser()
             material = analyze(tweet.GetText())
-            if material:
+            if material and not check_dup(user.GetScreenName(), material):
                 return (user, material)
             else:
                 friends_batch.remove(tweet)
 
     return None
+
+def check_dup(username, material):
+    result = db.GqlQuery('SELECT * FROM History WHERE username=:1 AND material=:2', 
+            username, material)
+    if result.count() > 0:
+        return True
+    else:
+        return False
 
 def get_query(sentence):
     return [ 
@@ -80,6 +94,8 @@ def do_fetch_and_post_material():
             return status.GetText()
         except twitter.TwitterError, e:
             return 'duplicated: user @%s with material %s' % (user.GetScreenName(), material)
+        finally:
+            History(username=user.GetScreenName(), material=material).put()
     else:
         return 'material not found'
 
