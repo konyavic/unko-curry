@@ -4,6 +4,11 @@ runtime: python
 api_version: 1
 
 handlers:
+
+- url: /fetch_and_post_material
+  script: app.py
+  login: admin
+
 - url: /.*
   script: app.py
 #login: required

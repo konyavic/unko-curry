@@ -97,11 +97,5 @@ def do_fetch_and_post_material():
         logging.debug('material not found')
         return 'material not found'
 
-def is_admin_user():
-    if users.get_current_user() != admin_user:
-        return False
-    else:
-        return True
-
 if __name__ == '__main__':
     app.run()
