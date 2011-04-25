@@ -11,3 +11,4 @@ apikey.py
 # other
 *.pyc
 *.swp
+*.vim
