@@ -19,6 +19,7 @@ from history import History
 
 app = Flask(__name__)
 
+# TODO: should be placed in a proper scope
 logging.getLogger().setLevel(logging.DEBUG)
 
 api = twitter.Api(
@@ -34,29 +35,36 @@ def fetch_material():
         batch = api.GetFriendsTimeline(count=config.FETCH_COUNT, page=retry)
         friends_batch = []
 
-        # exclude bot itself
+        # exclude tweets from bot itself
         for tweet in batch:
             user = tweet.GetUser()
             if user.GetId() != config.MY_ID:
                 friends_batch.append(tweet)
 
-        # analyze and get the material
+        # analyze and pick material
         while len(friends_batch) > 0:
             tweet = choice(friends_batch)
-            user = tweet.GetUser()
-            material = analyze(tweet.GetText())
-            if material and not check_dup(user.GetScreenName(), material):
-                return (user, material)
+            username = tweet.GetUser().GetScreenName()
+
+            material_list = analyze(tweet.GetText())
+            tmp_list = list(material_list)
+            
+            for material in tmp_list:
+                if is_duplicated(username, material):
+                    material_list.remove(material)
+
+            if len(material_list) > 0:
+                return (username, material_list)        
             else:
                 friends_batch.remove(tweet)
 
     return None
 
-def check_dup(username, material):
+def is_duplicated(username, material):
     result = db.GqlQuery('SELECT * FROM History WHERE username=:1 AND material=:2', 
             username, material)
     if result.count() > 0:
-        logging.debug('duplicated user %s and material %s in history', (username, material))
+        logging.debug('duplicated user %s with material %s' % (username, material))
         return True
     else:
         return False
@@ -68,31 +76,53 @@ def get_query(sentence):
             ('sentence', sentence)
             ]
 
-
 def analyze(text):
     result = json.load(
             urlopen(
                 config.YAHOO_KS_URL + '?' + urlencode(get_query(text.encode('utf-8')))
                 )
             )
-    logging.debug('analyzed and  got %s' % repr(result))
-    return choice(result.keys())
+
+    logging.debug('analyzed material %s' % repr(result))
+
+    material_list = []
+    for i in range(0, min(len(result), config.TWEET_MATERIAL_MAX)):
+        key = choice(result.keys())
+        logging.debug('choose %s' % key)
+        del result[key]
+        if is_material(key.encode('utf-8')):
+            material_list.append(key)
+
+    logging.debug('picked material %s' % repr(material_list))
+        
+    return material_list
+
+def is_material(keyword):
+    keyword = ''.join(keyword.split())
+    return not keyword.isalnum()
 
 
 @app.route('/fetch_and_post_material')
 def do_fetch_and_post_material():
     result = fetch_material()
     if result:
-        user, material = result
+        username, material_list = result
+        material_str_list = []
+        for material in material_list:
+            material_str_list.append(u'「%s」' % material)
+
         try:
-            status = api.PostUpdate(u'@%s はうんこカレーに「%s」を入れた' % (user.GetScreenName(), material))
+            status = api.PostUpdate(u'@%s はうんこカレーに%sを入れた' % (username, '、'.join(material_str_list)))
             logging.debug('posted %s' % status.GetText())
             return status.GetText()
+
         except twitter.TwitterError, e:
-            logging.debug('duplicated user and material %s', (user.GetScreenName(), material))
-            return 'duplicated: user @%s with material %s' % (user.GetScreenName(), material)
+            logging.debug('duplicated user and material %s', (username, material))
+            return 'duplicated: user @%s with material %s' % (username, material)
+        
         finally:
-            History(username=user.GetScreenName(), material=material).put()
+            History(username=username, material=material).put()
+
     else:
         logging.debug('material not found')
         return 'material not found'
