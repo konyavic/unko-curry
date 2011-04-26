@@ -2684,7 +2684,7 @@ class Api(object):
     self._CheckForTwitterError(data)
     return [Status.NewFromJsonDict(s) for s in data]
 
-  def GetFriends(self, user=None, cursor=-1):
+  def _GetFriends(self, user=None, cursor=-1):
     '''Fetch the sequence of twitter.User instances, one for each friend.
 
     The twitter.Api instance must be authenticated.
@@ -2708,7 +2708,10 @@ class Api(object):
     json = self._FetchUrl(url, parameters=parameters)
     data = simplejson.loads(json)
     self._CheckForTwitterError(data)
-    return [User.NewFromJsonDict(x) for x in data['users']]
+    return [User.NewFromJsonDict(x) for x in data['users']], data
+
+  def GetFriends(self, user=None, cursor=-1):
+      return self._GetFriends(user, cursor)[0]
 
   def GetFriendIDs(self, user=None, cursor=-1):
       '''Returns a list of twitter user id's for every person

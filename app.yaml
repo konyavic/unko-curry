@@ -9,17 +9,6 @@ builtins:
 
 handlers:
 
-- url: /fetch_and_post_material
-  script: app.py
-  login: admin
-
-- url: /update_users
-  script: app.py
-  login: admin
-
-- url: /update_send_list
-  script: app.py
-  login: admin
-
 - url: /.*
   script: app.py
+  login: admin

@@ -9,6 +9,7 @@ import apikey
 import config
 
 from google.appengine.ext import db
+from google.appengine.api import taskqueue
 
 from application import app
 
@@ -21,49 +22,83 @@ api = twitter.Api(
         )
 
 class CurryUser(db.Model):
-    username = db.StringProperty(required=True)
+    last_update = db.DateTimeProperty(auto_now_add=True)
+    last_fetch = db.DateTimeProperty(auto_now_add=True)
 
-class SendList(db.Model):
+class UserLink(db.Model):
     sender = db.ReferenceProperty(CurryUser, collection_name='sender')
     receiver = db.ReferenceProperty(CurryUser, collection_name='receiver')
 
 @app.route('/update_users')
 def do_update_users():
-    friend_list = api.GetFriends()
-    updated = []
+    taskqueue.add(
+            url=('/task/update_users/-1'),
+            queue_name='update-users-queue'
+            )
+    logging.info('update users: start')
+    return 'ok'
+
+@app.route('/task/update_users/<int:cursor>', methods=['GET', 'POST'])
+def do_task_update_users(cursor):
+    friend_list, data = api._GetFriends(cursor=cursor)
+    batch = []
     for friend in friend_list:
         username = friend.GetScreenName()
-        result = db.GqlQuery('SELECT * FROM CurryUser WHERE username=:1', username)
-        if result.count() <= 0:
-            updated.append(CurryUser(username=username))
+        if not CurryUser.get_by_key_name(username):
+            batch.append(CurryUser(key_name=username))
+            # TODO: should also dispatch a task to update the send list
 
-    db.put(updated)
-    return "updated curry user"
+    db.put(batch)
+    logging.debug('added %d users from %d friends of bot' % (len(batch), len(friend_list)))
+    logging.debug('next cursor=%d' % data['next_cursor'])
 
-@app.route('/update_send_list')
-def do_update_send_list():
-    for user in CurryUser.all():
-        update_friends(user)
-        update_followers(user)
+    if int(data['next_cursor']) != 0:
+        taskqueue.add(
+                url=('/task/update_users/%d' % int(data['next_cursor'])),
+                queue_name='update-users-queue'
+                )
+    else:
+        logging.info('update users: done')
 
-    return 'updated send list'
+    return 'ok'
 
-def update_friends(user):
-    friend_list = api.GetFriends(user=user.username)
-    updated = []
+@app.route('/update_links/<username>')
+def do_update_links_with_username(username):
+    user = CurryUser.get_by_key_name(username)
+    if not user:
+        logging.error("no such user '%s'" % username)
+        return 'bad'
+
+    cursor = -1
+    while cursor != 0:
+        cursor = update_friends(user, cursor)
+
+    return 'ok'
+
+@app.route('/task/update_friends/<user>/<int:cursor>', methods=['GET', 'POST'])
+def do_task_update_friends(user, cursor):
+    username = user.key().name()
+    friend_list, data = api._GetFriends(user=username, cursor=cursor)
+    batch = []
     for friend in friend_list:
         sender_name = friend.GetScreenName()
-        sender = CurryUser.all().filter("username = ", sender_name)
-        if sender.count() <= 0:
+        sender = CurryUser.get_by_key_name(sender_name)
+        if not sender:
             continue
 
-        result = db.GqlQuery('SELECT * FROM SendList WHERE sender=:1 AND receiver=:2', sender[0], user)
-        if result.count() <= 0:
-            updated.append(SendList(sender=sender[0], receiver=user))
+        link = (UserLink
+                .all()
+                .filter('sender = ', sender_name)
+                .filter('receiver = ', username)
+                .fetch(limit=1)
+                )
+        if not link:
+            batch.append(UserLink(sender=sender, receiver=user))
 
-    db.put(updated)
-    logging.debug('updated friends of %s' % user.username)
-    return
+    db.put(batch)
+    logging.debug('updated %d friends from %d friends of %s' % (len(batch), len(friend_list), username))
+    logging.debug('next cursor=%d' % data['next_cursor'])
+    return data['next_cursor']
 
 def update_followers(user):
     follower_list = api.GetFollowers(screen_name=user.username)

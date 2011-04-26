@@ -1,0 +1,8 @@
+queue:
+- name: update-users-queue
+  rate: 30/h
+  bucket_size: 1
+
+- name: update-links-queue
+  rate: 30/h
+  bucket_size: 1

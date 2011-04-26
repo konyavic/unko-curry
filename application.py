@@ -139,6 +139,10 @@ def do_fetch_and_post_material():
         logging.debug('material not found')
         return 'material not found'
 
+@app.route('/dispatcher')
+def do_dispatcher():
+    return ''
+
 def get_receiver_list(username):
     user = CurryUser.all().filter('username = ', username)
     if user.count() <= 0:
