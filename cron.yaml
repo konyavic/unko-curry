@@ -1,4 +1,4 @@
 cron:
 - description: post update to twitter
-  url: /fetch_and_post_material
+  url: /cron/fetch_and_post
   schedule: every 12 minutes

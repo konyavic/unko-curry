@@ -11,6 +11,7 @@ import config
 
 from urllib import urlopen, urlencode
 from random import choice
+from datetime import datetime
 
 from flask import Flask
 from flask import request
@@ -112,6 +113,24 @@ def is_material(keyword):
             return True
 
     return False
+
+@app.route('/cron/fetch_and_post')
+def do_fetch_and_post():
+    user = (CurryUser.all()
+            .order('last_fetch')
+            .fetch(limit=1)
+            )[0]
+
+    logging.info("fetched for user '%s'" % user.key().name())
+
+    taskqueue.add(
+            queue_name='fetch-queue',
+            url='/task/fetch_material/%s' % user.key().name(), 
+            )
+
+    user.last_fetch = datetime.now()
+    user.put()
+    return 'ok'
 
 @app.route('/task/fetch_material/<username>', methods=['GET', 'POST'])
 def do_task_fetch_material(username):
