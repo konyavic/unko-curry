@@ -48,7 +48,10 @@ def do_task_update_users(cursor):
         username = friend.GetScreenName()
         if not CurryUser.get_by_key_name(username):
             batch.append(CurryUser(key_name=username))
-            # TODO: should also dispatch a task to update the send list
+            taskqueue.add(
+                url=('/task/update_links/%s' % username),
+                queue_name='update-links-queue'
+                )
 
     db.put(batch)
     logging.debug('added %d users from %d friends of bot' % (len(batch), len(friend_list)))
