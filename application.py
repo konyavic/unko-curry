@@ -147,7 +147,7 @@ def get_receiver_list(username):
 
     result = db.GqlQuery('SELECT * FROM SendList WHERE sender=:1', user[0])
     receiver_list = [r.receiver for r in result]
-    logging.error('receivers of %s: %s' % (username, receiver_list))
+    logging.debug('receivers of %s: %s' % (username, receiver_list))
     return receiver_list
 
 if __name__ == '__main__':
