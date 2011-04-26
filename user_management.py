@@ -38,8 +38,9 @@ def do_update_users():
     logging.info('update users: start')
     return 'ok'
 
-@app.route('/task/update_users/<int:cursor>', methods=['GET', 'POST'])
+@app.route('/task/update_users/<cursor>', methods=['GET', 'POST'])
 def do_task_update_users(cursor):
+    cursor = int(cursor)
     friend_list, data = api._GetFriends(cursor=cursor)
     batch = []
     for friend in friend_list:
@@ -64,20 +65,25 @@ def do_task_update_users(cursor):
 
 @app.route('/update_links/<username>')
 def do_update_links_with_username(username):
+    taskqueue.add(
+            url=('/task/update_friends/%s/-1' % username),
+            queue_name='update-links-queue'
+            )
+    taskqueue.add(
+            url=('/task/update_followers/%s/-1' % username),
+            queue_name='update-links-queue'
+            )
+    logging.info("update links for user '%s': start" % username)
+    return 'ok'
+
+@app.route('/task/update_friends/<username>/<cursor>', methods=['GET', 'POST'])
+def do_task_update_friends(username, cursor):
+    cursor = int(cursor)
     user = CurryUser.get_by_key_name(username)
     if not user:
         logging.error("no such user '%s'" % username)
         return 'bad'
 
-    cursor = -1
-    while cursor != 0:
-        cursor = update_friends(user, cursor)
-
-    return 'ok'
-
-@app.route('/task/update_friends/<user>/<int:cursor>', methods=['GET', 'POST'])
-def do_task_update_friends(user, cursor):
-    username = user.key().name()
     friend_list, data = api._GetFriends(user=username, cursor=cursor)
     batch = []
     for friend in friend_list:
@@ -88,31 +94,64 @@ def do_task_update_friends(user, cursor):
 
         link = (UserLink
                 .all()
-                .filter('sender = ', sender_name)
-                .filter('receiver = ', username)
+                .filter('sender = ', sender)
+                .filter('receiver = ', user)
                 .fetch(limit=1)
                 )
+
         if not link:
             batch.append(UserLink(sender=sender, receiver=user))
 
     db.put(batch)
     logging.debug('updated %d friends from %d friends of %s' % (len(batch), len(friend_list), username))
     logging.debug('next cursor=%d' % data['next_cursor'])
-    return data['next_cursor']
 
-def update_followers(user):
-    follower_list = api.GetFollowers(screen_name=user.username)
-    updated = []
+    if int(data['next_cursor']) != 0:
+        taskqueue.add(
+                url=('/task/update_friends/%s/%d' % (username, int(data['next_cursor']))),
+                queue_name='update-links-queue'
+                )
+    else:
+        logging.info("update links (friends) for user '%s': start" % username)
+
+    return 'ok'
+
+@app.route('/task/update_followers/<username>/<cursor>', methods=['GET', 'POST'])
+def do_task_update_followers(username, cursor):
+    cursor = int(cursor)
+    user = CurryUser.get_by_key_name(username)
+    if not user:
+        logging.error("no such user '%s'" % username)
+        return 'bad'
+
+    follower_list, data = api._GetFollowers(screen_name=username, cursor=cursor)
+    batch = []
     for follower in follower_list:
         receiver_name = follower.GetScreenName()
-        receiver = CurryUser.all().filter("username = ", receiver_name)
-        if receiver.count() <= 0:
+        receiver = CurryUser.get_by_key_name(receiver_name)
+        if not receiver:
             continue
 
-        result = db.GqlQuery('SELECT * FROM SendList WHERE sender=:1 AND receiver=:2', user, receiver[0])
-        if result.count() <= 0:
-            updated.append(SendList(sender=user, receiver=receiver[0]))
+        link = (UserLink
+                .all()
+                .filter('sender = ', user)
+                .filter('receiver = ', receiver)
+                .fetch(limit=1)
+                )
 
-    db.put(updated)
-    logging.debug('updated followers of %s' % user.username)
-    return
+        if not link:
+            batch.append(UserLink(sender=user, receiver=receiver))
+
+    db.put(batch)
+    logging.debug('updated %d followers from %d followers of %s' % (len(batch), len(follower_list), username))
+    logging.debug('next cursor=%d' % data['next_cursor'])
+
+    if int(data['next_cursor']) != 0:
+        taskqueue.add(
+                url=('/task/update_followers/%s/%d' % (username, int(data['next_cursor']))),
+                queue_name='update-links-queue'
+                )
+    else:
+        logging.info("update links (followers) for user '%s': start" % username)
+
+    return 'ok'

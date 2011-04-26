@@ -2756,7 +2756,7 @@ class Api(object):
     self._CheckForTwitterError(data)
     return data
 
-  def GetFollowers(self, page=None, screen_name=None):
+  def _GetFollowers(self, page=None, screen_name=None, cursor=-1):
     '''Fetch the sequence of twitter.User instances, one for each follower
 
     The twitter.Api instance must be authenticated.
@@ -2777,10 +2777,15 @@ class Api(object):
       parameters['page'] = page
     if screen_name:
       parameters['screen_name'] = screen_name
+    parameters['cursor'] = cursor
+    json = self._FetchUrl(url, parameters=parameters)
     json = self._FetchUrl(url, parameters=parameters)
     data = simplejson.loads(json)
     self._CheckForTwitterError(data)
-    return [User.NewFromJsonDict(x) for x in data]
+    return [User.NewFromJsonDict(x) for x in data['users']], data
+
+  def GetFollowers(self, page=None, screen_name=None, cursor=-1):
+      return self._GetFollowers(page, screen_name, cursor)[0]
 
   def GetFeatured(self):
     '''Fetch the sequence of twitter.User instances featured on twitter.com
