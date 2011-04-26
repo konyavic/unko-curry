@@ -13,7 +13,9 @@ from urllib import urlopen, urlencode
 from random import choice
 
 from flask import Flask
+from flask import request
 from google.appengine.ext import db
+from google.appengine.api import taskqueue
 
 from history import History
 
@@ -21,6 +23,7 @@ app = Flask(__name__)
 
 import user_management
 from user_management import CurryUser
+from user_management import UserLink
 
 # TODO: should be placed in a proper scope
 logging.getLogger().setLevel(logging.DEBUG)
@@ -33,7 +36,8 @@ api = twitter.Api(
         cache = None
         )
 
-def fetch_material():
+#def fetch_material():
+def _fetch_material():
     for retry in range(1, 1 + config.FETCH_RETRY_MAX):
         logging.debug('fetching tweets with count=%d, page=%d ...' % (config.FETCH_COUNT, retry))
         batch = api.GetFriendsTimeline(count=config.FETCH_COUNT, page=retry)
@@ -92,7 +96,7 @@ def analyze(text):
     material_list = []
     for i in range(0, min(len(result), config.TWEET_MATERIAL_MAX)):
         key = choice(result.keys())
-        logging.debug('choiced %s' % key)
+        logging.debug('choosed %s' % key)
         del result[key]
         if is_material(key):
             material_list.append(key)
@@ -108,6 +112,61 @@ def is_material(keyword):
             return True
 
     return False
+
+@app.route('/task/fetch_material/<username>', methods=['GET', 'POST'])
+def do_task_fetch_material(username):
+    user = CurryUser.get_by_key_name(username)
+    if not user:
+        logging.error("no such user '%s'" % username)
+        return 'bad'
+
+    tweet_list = api.GetUserTimeline(screen_name=username, count=config.FETCH_COUNT)
+    while len(tweet_list) > 0:
+        tweet = choice(tweet_list)
+        material_list = analyze(tweet.GetText())
+        if len(material_list) <= 0:
+            continue
+
+        break
+
+        #TODO: check duplicity
+
+    link_list = (UserLink
+            .all()
+            .filter('sender = ', user)
+            .fetch(limit=config.RECEIVER_MAX)
+            )
+
+    for link in link_list:
+        taskqueue.add(
+                queue_name='post-queue',
+                url='/task/post_material/%s/%s' % (username, link.receiver.key().name()), 
+                params={'material': material_list}
+                )
+        logging.debug("send from user '%s' to '%s' with material '%s'" % 
+                (username, link.receiver.key().name(), repr(material_list)))
+
+    #TODO: send to karei_bot if no receivers
+
+    return 'ok'
+
+@app.route('/task/post_material/<sender_name>/<receiver_name>', methods=['POST'])
+def do_task_post_material(sender_name, receiver_name):
+    material_list = request.form.getlist('material')
+    material_str_list = []
+    for material in material_list:
+        material_str_list.append(u'「%s」' % material)
+
+    material_str = u'、'.join(material_str_list)
+    logging.debug('constructed material string %s' % material_str)
+
+    try:
+        status = api.PostUpdate(u'@%s は @%s のカレーに%sを入れた' % (sender_name, receiver_name, material_str))
+        logging.debug("posted '%s'" % status.GetText())
+    except twitter.TwitterError, e:
+        logging.debug('duplicated user %s with material %s', (username, material_list))
+
+    return 'ok'
 
 @app.route('/fetch_and_post_material')
 def do_fetch_and_post_material():
@@ -138,10 +197,6 @@ def do_fetch_and_post_material():
     else:
         logging.debug('material not found')
         return 'material not found'
-
-@app.route('/dispatcher')
-def do_dispatcher():
-    return ''
 
 def get_receiver_list(username):
     user = CurryUser.all().filter('username = ', username)

@@ -24,6 +24,7 @@ api = twitter.Api(
 class CurryUser(db.Model):
     last_update = db.DateTimeProperty(auto_now_add=True)
     last_fetch = db.DateTimeProperty(auto_now_add=True)
+    last_receive = db.DateTimeProperty(auto_now_add=True)
 
 class UserLink(db.Model):
     sender = db.ReferenceProperty(CurryUser, collection_name='sender')
