@@ -2,3 +2,13 @@ cron:
 - description: post update to twitter
   url: /cron/fetch_and_post
   schedule: every 12 minutes
+
+- description: force checking of linkes for all users
+  url: /cron/update_users/1
+  schedule: every day 1:00
+  timezone: Asia/Tokyo
+
+- description: checking links for new users
+  url: /cron/update_users/0
+  schedule: every 1 hours from 6:00 to 0:00
+  timezone: Asia/Tokyo

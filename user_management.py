@@ -30,26 +30,28 @@ class UserLink(db.Model):
     sender = db.ReferenceProperty(CurryUser, collection_name='sender')
     receiver = db.ReferenceProperty(CurryUser, collection_name='receiver')
 
-@app.route('/update_users')
-def do_update_users():
+@app.route('/cron/update_users/<force>')
+def do_update_users(force):
     taskqueue.add(
-            url=('/task/update_users/-1'),
+            url=('/task/update_users/%s/-1' % force),
             queue_name='update-users-queue'
             )
     logging.info('update users: start')
     return 'ok'
 
-@app.route('/task/update_users/<cursor>', methods=['GET', 'POST'])
-def do_task_update_users(cursor):
+@app.route('/task/update_users/<force>/<cursor>', methods=['GET', 'POST'])
+def do_task_update_users(force, cursor):
+    force = bool(int(force))
     cursor = int(cursor)
     friend_list, data = api._GetFriends(cursor=cursor)
     batch = []
     for friend in friend_list:
         username = friend.GetScreenName()
-        if not CurryUser.get_by_key_name(username):
+        isnew = not CurryUser.get_by_key_name(username)
+        if force or isnew:
             batch.append(CurryUser(key_name=username))
             taskqueue.add(
-                url=('/task/update_links/%s' % username),
+                url=('/task/update_links/%s/%d' % (username, (isnew and not force))),
                 queue_name='update-links-queue'
                 )
 
@@ -59,7 +61,7 @@ def do_task_update_users(cursor):
 
     if int(data['next_cursor']) != 0:
         taskqueue.add(
-                url=('/task/update_users/%d' % int(data['next_cursor'])),
+                url=('/task/update_users/%d/%d' % (force, int(data['next_cursor']))),
                 queue_name='update-users-queue'
                 )
     else:
@@ -67,9 +69,10 @@ def do_task_update_users(cursor):
 
     return 'ok'
 
-@app.route('/task/update_links/<username>', methods=['GET', 'POST'])
-def do_task_update_links(username):
+@app.route('/task/update_links/<username>/<isnew>', methods=['GET', 'POST'])
+def do_task_update_links(username, isnew):
     user = api.GetUser(user=username)
+    isnew = bool(int(isnew))
 
     if user.GetFriendsCount() < config.LINK_THREASHOLD:
         taskqueue.add(
@@ -80,7 +83,7 @@ def do_task_update_links(username):
     else:
         logging.info("refused updating for user '%s'" % username)
 
-    if user.GetFollowersCount() < config.LINK_THREASHOLD:
+    if isnew and user.GetFollowersCount() < config.LINK_THREASHOLD:
         taskqueue.add(
                 url=('/task/update_followers/%s/-1' % username),
                 queue_name='update-links-queue'
