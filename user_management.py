@@ -64,17 +64,28 @@ def do_task_update_users(cursor):
 
     return 'ok'
 
-@app.route('/update_links/<username>')
-def do_update_links_with_username(username):
-    taskqueue.add(
-            url=('/task/update_friends/%s/-1' % username),
-            queue_name='update-links-queue'
-            )
-    taskqueue.add(
-            url=('/task/update_followers/%s/-1' % username),
-            queue_name='update-links-queue'
-            )
-    logging.info("update links for user '%s': start" % username)
+@app.route('/task/update_links/<username>', methods=['GET', 'POST'])
+def do_task_update_links(username):
+    user = api.GetUser(user=username)
+
+    if user.GetFriendsCount() < config.LINK_THREASHOLD:
+        taskqueue.add(
+                url=('/task/update_friends/%s/-1' % username),
+                queue_name='update-links-queue'
+                )
+        logging.info("update links (friends) for user '%s': start" % username)
+    else:
+        logging.info("refused updating for user '%s'" % username)
+
+    if user.GetFollowersCount() < config.LINK_THREASHOLD:
+        taskqueue.add(
+                url=('/task/update_followers/%s/-1' % username),
+                queue_name='update-links-queue'
+                )
+        logging.info("update links (followers) for user '%s': start" % username)
+    else:
+        logging.info("refused updating for user '%s'" % username)
+
     return 'ok'
 
 @app.route('/task/update_friends/<username>/<cursor>', methods=['GET', 'POST'])
@@ -113,7 +124,7 @@ def do_task_update_friends(username, cursor):
                 queue_name='update-links-queue'
                 )
     else:
-        logging.info("update links (friends) for user '%s': start" % username)
+        logging.info("update links (friends) for user '%s': done" % username)
 
     return 'ok'
 
@@ -153,6 +164,6 @@ def do_task_update_followers(username, cursor):
                 queue_name='update-links-queue'
                 )
     else:
-        logging.info("update links (followers) for user '%s': start" % username)
+        logging.info("update links (followers) for user '%s': done" % username)
 
     return 'ok'
