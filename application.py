@@ -29,6 +29,7 @@ from analyzer import analyze
 
 import effects
 from effects import Effect
+from effects import Special
 
 # TODO: should be placed in a proper scope
 logging.getLogger().setLevel(logging.DEBUG)
@@ -62,16 +63,18 @@ def do_fetch_and_post():
 
     taskqueue.add(
             queue_name='fetch-queue',
-            url='/task/fetch_material/%s' % user.key().name(), 
+            url='/task/fetch_material/%s/0' % user.key().name(), 
             )
 
     user.last_fetch = datetime.now()
     user.put()
     return 'ok'
 
-@app.route('/task/fetch_material/<username>', methods=['GET', 'POST'])
-def do_task_fetch_material(username):
+@app.route('/task/fetch_material/<username>/<force_top>', methods=['GET', 'POST'])
+def do_task_fetch_material(username, force_top):
     user = CurryUser.get_by_key_name(username)
+    force_top = bool(int(force_top))
+
     if not user:
         logging.error("no such user '%s'" % username)
         return 'bad'
@@ -81,14 +84,17 @@ def do_task_fetch_material(username):
     tweet = None
     material_list = None
     success = False
-    shuffle(tweet_list)
+    if force_top:
+        tweet_list = tweet_list[0:1]
+    else:
+        shuffle(tweet_list)
 
     #
     # select material
     #
     for tweet in tweet_list:
         # check history
-        if is_duplicated(tweet):
+        if not force_top and is_duplicated(tweet):
             continue
 
         text = tweet.GetText().encode('utf-8')
@@ -168,9 +174,19 @@ def do_task_post_material(sender_name, receiver_name):
     material_str = u'、'.join(material_str_list)
     logging.debug('constructed material string %s' % material_str)
 
-    # TODO: check special list
-    offset = hash(material_str) % Effect.all().count()
-    effect = Effect.all().fetch(offset=offset, limit=1)[0]
+    # lookup special words for effects
+    effect = ""
+    for material in material_list:
+        s = Special.get_by_key_name(material)
+        if s:
+            effect = s.effect_string
+
+    # no special words contained
+    if not effect:
+        offset = hash(material_str) % Effect.all().count()
+        result = Effect.all().fetch(offset=offset, limit=1)
+        if result:
+            effect = result[0].effect_string
 
     try:
         status = api.PostUpdate(
@@ -178,7 +194,7 @@ def do_task_post_material(sender_name, receiver_name):
                     sender_name, 
                     receiver_name, 
                     material_str,
-                    effect.effect_string
+                    effect
                     )
                 )
         logging.debug("posted '%s'" % status.GetText())

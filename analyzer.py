@@ -11,6 +11,43 @@ import apikey
 from urllib import urlopen, urlencode
 from xml.dom import minidom
 
+if __name__ == '__main__':
+    # for console debug and tuning
+
+    from messages import SPECIAL
+    from messages import BANNED
+
+    special_list = [s[0] for s in SPECIAL]
+    
+    def is_special(word):
+        if word in special_list:
+            print 'hit special list: %s' % word
+            return True
+        else:
+            return False
+
+    def is_banned(word):
+        if word in BANNED:
+            print 'hit banned list: %s' % word
+            return True
+        else:
+            return False
+else:
+    from effects import Special
+    from effects import Banned
+
+    def is_special(word):
+        if Special.get_by_key_name(word):
+            return True
+        else:
+            return False
+
+    def is_banned(word):
+        if Banned.get_by_key_name(word):
+            return True
+        else:
+            return False
+
 def analyze(text, count):
     text = remove_entities(text)
     ks_list = get_yahoo_ks(text)
@@ -18,7 +55,11 @@ def analyze(text, count):
 
     result = []
     for keyphrase in ks_list:
-        #TODO: output any word in special list if it is contained in this keyphrase
+        if is_special(keyphrase) and not keyphrase in result:
+            result.append(keyphrase)
+            if len(result) >= count:
+                break
+
         start = len(keyphrase) - 1
         end = 0
         for word in ma_list:
@@ -27,11 +68,11 @@ def analyze(text, count):
                 start = pos if pos < start else start
                 end = pos + len(word) if end < (pos + len(word)) else end
 
-        if (end - start) > 0:
-            #TODO: do not output keyphrase in black list
-            result.append(keyphrase[start:end])
+        word = keyphrase[start:end]
+        if (end - start) > 0 and not word in result:
+            result.append(word)
 
-        if len(result) > count:
+        if len(result) >= count:
             break
 
     return result
@@ -59,7 +100,11 @@ def get_yahoo_ks(text):
                 )
         keys = result.keys()
         keys.sort(key=lambda x:result[x], reverse=True)
-        return keys
+        processed = []
+        for key in keys:
+            processed += key.split()
+
+        return processed
     
     except:
         return []
@@ -79,7 +124,14 @@ def get_yahoo_ma(text):
                 ).read()
         dom = minidom.parseString(result)
         words = dom.getElementsByTagName('surface')
-        return [w.lastChild.nodeValue for w in words]
+        processed = []
+        for w in [w.lastChild.nodeValue for w in words]:
+            if is_banned(w):
+                continue
+
+            processed.append(w)
+
+        return processed
 
     except:
         return []
@@ -101,6 +153,6 @@ if __name__ == '__main__':
         print r
     
     print '-- analyzed --'
-    result = analyze(text, config.TWEET_MATERIAL_MAX)
+    result = analyze(text, 10)
     for r in result:
         print r
