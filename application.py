@@ -59,6 +59,12 @@ def do_fetch_and_post():
             .fetch(limit=1)
             )[0]
 
+    if user.key().name() == config.MY_NAME:
+        # skip bot itself
+        user.last_fetch = datetime.now()
+        user.put()
+        return 'ok'
+
     logging.info("fetching for user '%s'" % user.key().name())
 
     taskqueue.add(
@@ -188,6 +194,7 @@ def do_task_post_material(sender_name, receiver_name):
         if result:
             effect = result[0].effect_string
 
+    # post the tweet
     try:
         status = api.PostUpdate(
                 u'@%s は @%s の カレーに %sを 入れた。 %s' % (
@@ -201,6 +208,42 @@ def do_task_post_material(sender_name, receiver_name):
     except twitter.TwitterError, e:
         logging.debug('duplicated user %s with material %s', (username, material_list))
 
+    # put into curry
+    receiver = CurryUser.get_by_key_name(receiver_name)
+    if receiver.curry_count > 0:
+        receiver.curry_material += u'、' + material_str
+    else:
+        receiver.curry_material = material_str
+
+    receiver.curry_count += len(material_list)
+    receiver.put()
+    if receiver.curry_count >= config.CURRY_MATERIAL_MAX:
+        taskqueue.add(
+                queue_name='post-queue',
+                url='/task/post_curry/%s' % receiver_name, 
+                )
+
+    return 'ok'
+
+@app.route('/task/post_curry/<username>', methods=['GET', 'POST'])
+def do_task_post_curry(username):
+    user = CurryUser.get_by_key_name(username)
+
+    # post the tweet
+    try:
+        status = api.PostUpdate(
+                u'@%s の カレーは 完成した！ 今日の材料は %s' % (
+                    username,
+                    user.curry_material
+                    )
+                )
+        user.curry_count = 0
+        user.curry_material = ""
+        user.put()
+        logging.debug("posted '%s'" % status.GetText())
+    except twitter.TwitterError, e:
+        logging.debug('duplicated user %s with material %s', (username, material_list))
+    
     return 'ok'
 
 if __name__ == '__main__':

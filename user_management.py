@@ -23,6 +23,8 @@ api = twitter.Api(
 
 class CurryUser(db.Model):
     last_fetch = db.DateTimeProperty(auto_now_add=True)
+    curry_count = db.IntegerProperty(default=0)
+    curry_material = db.StringProperty(default="")
 
 class UserLink(db.Model):
     sender = db.ReferenceProperty(CurryUser, collection_name='sender')
@@ -31,6 +33,17 @@ class UserLink(db.Model):
 
 @app.route('/cron/update_users/<force>')
 def do_cron_update_users(force):
+    # update bot
+    bot = CurryUser.get_by_key_name(config.MY_NAME)
+    if not bot:
+        CurryUser(key_name=config.MY_NAME).put()
+
+    taskqueue.add(
+            url=('/task/update_friends/%s/-1' % config.MY_NAME),
+            queue_name='update-links-queue'
+            )
+
+    # update friends
     taskqueue.add(
             url=('/task/update_users/%s/-1' % force),
             queue_name='update-users-queue'
