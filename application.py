@@ -10,7 +10,8 @@ import apikey
 import config
 
 from urllib import urlopen, urlencode
-from random import choice
+from random import shuffle, random
+
 from datetime import datetime
 
 from flask import Flask
@@ -18,13 +19,13 @@ from flask import request
 from google.appengine.ext import db
 from google.appengine.api import taskqueue
 
-from history import History
-
 app = Flask(__name__)
 
 import user_management
 from user_management import CurryUser
 from user_management import UserLink
+
+from analyzer import analyze
 
 # TODO: should be placed in a proper scope
 logging.getLogger().setLevel(logging.DEBUG)
@@ -37,82 +38,16 @@ api = twitter.Api(
         cache = None
         )
 
-#def fetch_material():
-def _fetch_material():
-    for retry in range(1, 1 + config.FETCH_RETRY_MAX):
-        logging.debug('fetching tweets with count=%d, page=%d ...' % (config.FETCH_COUNT, retry))
-        batch = api.GetFriendsTimeline(count=config.FETCH_COUNT, page=retry)
-        friends_batch = []
+class History(db.Model):
+    # key name = tweet id 
+    timestamp = db.DateTimeProperty(auto_now_add=True)
 
-        # exclude tweets from bot itself
-        for tweet in batch:
-            user = tweet.GetUser()
-            if user.GetId() != config.MY_ID:
-                friends_batch.append(tweet)
 
-        # analyze and pick material
-        while len(friends_batch) > 0:
-            tweet = choice(friends_batch)
-            username = tweet.GetUser().GetScreenName()
-
-            material_list = analyze(tweet.GetText())
-            tmp_list = list(material_list)
-            
-            for material in tmp_list:
-                if is_duplicated(username, material):
-                    material_list.remove(material)
-
-            if len(material_list) > 0:
-                return (username, material_list)        
-            else:
-                friends_batch.remove(tweet)
-
-    return None
-
-def is_duplicated(username, material):
-    result = db.GqlQuery('SELECT * FROM History WHERE username=:1 AND material=:2', 
-            username, material)
-    if result.count() > 0:
-        logging.debug('duplicated user %s with material %s' % (username, material))
+def is_duplicated(tweet):
+    if History.get_by_key_name(str(tweet.id)):
         return True
     else:
         return False
-
-def get_query(sentence):
-    return [ 
-            ('appid', apikey.YAHOO_ID),
-            ('output', 'json'),
-            ('sentence', sentence)
-            ]
-
-def analyze(text):
-    result = json.load(
-            urlopen(
-                config.YAHOO_KS_URL + '?' + urlencode(get_query(text.encode('utf-8')))
-                )
-            )
-
-    logging.debug('analyzed material %s' % repr(result))
-
-    material_list = []
-    for i in range(0, min(len(result), config.TWEET_MATERIAL_MAX)):
-        key = choice(result.keys())
-        logging.debug('choosed %s' % key)
-        del result[key]
-        if is_material(key):
-            material_list.append(key)
-
-    logging.debug('picked material %s' % repr(material_list))
-        
-    return material_list
-
-def is_material(keyword):
-    keyword = keyword.encode('utf-8')
-    for c in keyword:
-        if ord(c) > 128:
-            return True
-
-    return False
 
 @app.route('/cron/fetch_and_post')
 def do_fetch_and_post():
@@ -121,7 +56,7 @@ def do_fetch_and_post():
             .fetch(limit=1)
             )[0]
 
-    logging.info("fetched for user '%s'" % user.key().name())
+    logging.info("fetching for user '%s'" % user.key().name())
 
     taskqueue.add(
             queue_name='fetch-queue',
@@ -140,32 +75,86 @@ def do_task_fetch_material(username):
         return 'bad'
 
     tweet_list = api.GetUserTimeline(screen_name=username, count=config.FETCH_COUNT)
-    while len(tweet_list) > 0:
-        tweet = choice(tweet_list)
-        material_list = analyze(tweet.GetText())
-        if len(material_list) <= 0:
+
+    tweet = None
+    material_list = None
+    success = False
+    shuffle(tweet_list)
+
+    #
+    # select material
+    #
+    for tweet in tweet_list:
+        #TODO: randomize receiver:material
+        #TODO: special dictionary
+        #TODO: better score
+
+        # check history
+        if is_duplicated(tweet):
             continue
 
-        break
+        text = tweet.GetText().encode('utf-8')
+        material_list = analyze(
+                text,
+                count=config.TWEET_MATERIAL_MAX
+                )
 
-        #TODO: check duplicity
+        if len(material_list) > 0:
+            # found material
+            success = True
+            break
 
+    if success:
+        # record to history
+        # TODO: trim history chronically
+        History(
+                key_name=str(tweet.id),
+                timestamp=datetime.now()
+                ).put()
+    else:
+        logging.info("material not found for user '%s'" % username)
+        return 'bad'
+
+    #
+    # select receivers
+    #
     link_list = (UserLink
             .all()
             .filter('sender = ', user)
+            .order('timestamp')
             .fetch(limit=config.RECEIVER_MAX)
             )
 
     for link in link_list:
+        # randomize material per receiver
+        shuffle(material_list)
+        count = 1 + int(random() * len(material_list))
+        receive_material = material_list[:count]
+
         taskqueue.add(
                 queue_name='post-queue',
                 url='/task/post_material/%s/%s' % (username, link.receiver.key().name()), 
-                params={'material': material_list}
+                params={'material': receive_material}
                 )
-        logging.debug("send from user '%s' to '%s' with material '%s'" % 
-                (username, link.receiver.key().name(), repr(material_list)))
 
-    #TODO: send to karei_bot if no receivers
+        link.timestamp=datetime.now()
+        logging.debug("sending from user '%s' to '%s' with material '%s'" % 
+                (username, link.receiver.key().name(), repr(material_list)))
+    # update timestamp
+    db.put(link_list)
+
+    # send to karei_bot if no receivers
+    if len(link_list) == 0:
+        shuffle(material_list)
+        count = 1 + int(random() * len(material_list))
+        receive_material = material_list[:count]
+
+        taskqueue.add(
+                queue_name='post-queue',
+                url='/task/post_material/%s/%s' % (username, config.MY_NAME), 
+                params={'material': receive_material}
+                )
+        logging.debug('duplicated user %s with material %s', (username, config.MY_NAME))
 
     return 'ok'
 
@@ -186,47 +175,6 @@ def do_task_post_material(sender_name, receiver_name):
         logging.debug('duplicated user %s with material %s', (username, material_list))
 
     return 'ok'
-
-@app.route('/fetch_and_post_material')
-def do_fetch_and_post_material():
-    result = fetch_material()
-    if result:
-        username, material_list = result
-        material_str_list = []
-        for material in material_list:
-            material_str_list.append(u'「%s」' % material)
-
-        material_str = u'、'.join(material_str_list)
-        logging.debug('constructed material string %s' % material_str)
-
-        receiver_list = get_receiver_list(username)
-        update_history = []
-        for receiver in receiver_list:
-            try:
-                status = api.PostUpdate(u'@%s は @%s のカレーに%sを入れた' % (username, receiver.username, material_str))
-                logging.debug('posted %s' % status.GetText())
-            except twitter.TwitterError, e:
-                logging.debug('duplicated user %s with material %s', (username, repr(material_list)))
-            finally:
-                update_history.append(History(username=username, material=material))
-
-        db.put(update_history)
-        return 'posted'
-
-    else:
-        logging.debug('material not found')
-        return 'material not found'
-
-def get_receiver_list(username):
-    user = CurryUser.all().filter('username = ', username)
-    if user.count() <= 0:
-        logging.error('no such user %s' % username)
-        return []
-
-    result = db.GqlQuery('SELECT * FROM SendList WHERE sender=:1', user[0])
-    receiver_list = [r.receiver for r in result]
-    logging.debug('receivers of %s: %s' % (username, receiver_list))
-    return receiver_list
 
 if __name__ == '__main__':
     app.run()

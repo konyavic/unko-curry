@@ -22,16 +22,15 @@ api = twitter.Api(
         )
 
 class CurryUser(db.Model):
-    last_update = db.DateTimeProperty(auto_now_add=True)
     last_fetch = db.DateTimeProperty(auto_now_add=True)
-    last_receive = db.DateTimeProperty(auto_now_add=True)
 
 class UserLink(db.Model):
     sender = db.ReferenceProperty(CurryUser, collection_name='sender')
     receiver = db.ReferenceProperty(CurryUser, collection_name='receiver')
+    timestamp = db.DateTimeProperty()
 
 @app.route('/cron/update_users/<force>')
-def do_update_users(force):
+def do_cron_update_users(force):
     taskqueue.add(
             url=('/task/update_users/%s/-1' % force),
             queue_name='update-users-queue'
