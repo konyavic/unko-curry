@@ -27,6 +27,9 @@ from user_management import UserLink
 
 from analyzer import analyze
 
+import effects
+from effects import Effect
+
 # TODO: should be placed in a proper scope
 logging.getLogger().setLevel(logging.DEBUG)
 
@@ -41,7 +44,6 @@ api = twitter.Api(
 class History(db.Model):
     # key name = tweet id 
     timestamp = db.DateTimeProperty(auto_now_add=True)
-
 
 def is_duplicated(tweet):
     if History.get_by_key_name(str(tweet.id)):
@@ -85,10 +87,6 @@ def do_task_fetch_material(username):
     # select material
     #
     for tweet in tweet_list:
-        #TODO: randomize receiver:material
-        #TODO: special dictionary
-        #TODO: better score
-
         # check history
         if is_duplicated(tweet):
             continue
@@ -170,8 +168,19 @@ def do_task_post_material(sender_name, receiver_name):
     material_str = u'、'.join(material_str_list)
     logging.debug('constructed material string %s' % material_str)
 
+    # TODO: check special list
+    offset = hash(material_str) % Effect.all().count()
+    effect = Effect.all().fetch(offset=offset, limit=1)[0]
+
     try:
-        status = api.PostUpdate(u'@%s は @%s のカレーに%sを入れた' % (sender_name, receiver_name, material_str))
+        status = api.PostUpdate(
+                u'@%s は @%s の カレーに %sを 入れた。 %s' % (
+                    sender_name, 
+                    receiver_name, 
+                    material_str,
+                    effect.effect_string
+                    )
+                )
         logging.debug("posted '%s'" % status.GetText())
     except twitter.TwitterError, e:
         logging.debug('duplicated user %s with material %s', (username, material_list))

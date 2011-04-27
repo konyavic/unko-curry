@@ -3,6 +3,7 @@
 
 YAHOO_KS_URL = 'http://jlp.yahooapis.jp/KeyphraseService/V1/extract?'
 YAHOO_MA_URL = 'http://jlp.yahooapis.jp/MAService/V1/parse?'
+
 MY_ID = 285389975
 MY_NAME = 'karei_bot'
 
