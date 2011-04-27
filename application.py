@@ -139,7 +139,7 @@ def do_task_fetch_material(username):
 
         link.timestamp=datetime.now()
         logging.debug("sending from user '%s' to '%s' with material '%s'" % 
-                (username, link.receiver.key().name(), repr(material_list)))
+                (username, link.receiver.key().name(), repr(receive_material)))
     # update timestamp
     db.put(link_list)
 
@@ -154,7 +154,9 @@ def do_task_fetch_material(username):
                 url='/task/post_material/%s/%s' % (username, config.MY_NAME), 
                 params={'material': receive_material}
                 )
-        logging.debug('duplicated user %s with material %s', (username, config.MY_NAME))
+
+        logging.debug("sending from user '%s' to '%s' with material '%s'" % 
+                (username, config.MY_NAME, repr(receive_material)))
 
     return 'ok'
 

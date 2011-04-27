@@ -12,17 +12,14 @@ from urllib import urlopen, urlencode
 from xml.dom import minidom
 
 def analyze(text, count):
-    print repr(text)
     text = remove_entities(text)
     ks_list = get_yahoo_ks(text)
     ma_list = get_yahoo_ma(text)
-    print repr(ks_list)
-    print repr(ma_list)
 
     result = []
     for keyphrase in ks_list:
         #TODO: output any word in special list if it is contained in this keyphrase
-        start = 0
+        start = len(keyphrase) - 1
         end = 0
         for word in ma_list:
             pos = keyphrase.find(word)
@@ -30,7 +27,7 @@ def analyze(text, count):
                 start = pos if pos < start else start
                 end = pos + len(word) if end < (pos + len(word)) else end
 
-        if (end - start) != 0:
+        if (end - start) > 0:
             #TODO: do not output keyphrase in black list
             result.append(keyphrase[start:end])
 
