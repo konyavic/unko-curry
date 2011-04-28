@@ -278,7 +278,7 @@ def do_task_post_curry(username):
     # post the tweet
     try:
         status = api.PostUpdate(
-                u'@%s の カレーが できあがった！ 今日の材料は %s。 %s （%s）' % (
+                u'@%s の カレーが できあがった！ 今日の材料は %s。%s %s' % (
                     username,
                     user.curry_material,
                     display_string,
