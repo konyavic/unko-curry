@@ -10,7 +10,7 @@ import apikey
 import config
 
 from urllib import urlopen, urlencode
-from random import shuffle, random
+from random import shuffle, random, choice
 
 from datetime import datetime
 
@@ -28,7 +28,6 @@ from user_management import UserLink
 from analyzer import analyze
 
 import effects
-from effects import Effect
 from effects import Special
 
 # TODO: should be placed in a proper scope
@@ -180,43 +179,88 @@ def do_task_post_material(sender_name, receiver_name):
     material_str = u'、'.join(material_str_list)
     logging.debug('constructed material string %s' % material_str)
 
-    # lookup special words for effects
-    effect = ""
+    #
+    # lookup special words
+    #
+    effect_list = []
+    undefined_material_list = []
     for material in material_list:
         s = Special.get_by_key_name(material)
         if s:
-            effect = s.effect_string
+            effect_list.append(s)
+        else:
+            undefined_material_list.append(material)
 
-    # no special words contained
-    if not effect:
-        offset = hash(material_str) % Effect.all().count()
-        result = Effect.all().fetch(offset=offset, limit=1)
-        if result:
-            effect = result[0].effect_string
+    effect_string = choice(effect_list).effect_string if effect_list else u"なにも おこらなかった"
+    state_string = choice(effect_list).state_string if effect_list else ""
 
+    # generate effects for undefined material
+    for material in undefined_material_list:
+        # added for the ease of processing but never updated to DB
+        # TODO
+        effect_list.append(
+                Special(
+                    key_name=material,
+                    spicy=random() * 10,
+                    kal=int(random() * 1000),
+                    color=[
+                        int(random() * 256),
+                        int(random() * 256),
+                        int(random() * 256)
+                        ],
+                    price=int(random() * 10000),
+                    effect_string="",
+                    state_string="",
+                    )
+                )
+
+    #
     # post the tweet
+    #
     try:
         status = api.PostUpdate(
                 u'@%s は @%s の カレーに %sを 入れた。 %s' % (
                     sender_name, 
                     receiver_name, 
                     material_str,
-                    effect
+                    effect_string
                     )
                 )
         logging.debug("posted '%s'" % status.GetText())
     except twitter.TwitterError, e:
-        logging.debug('duplicated user %s with material %s', (username, material_list))
+        logging.debug('duplicated user %s with material %s', (sender_name, material_list))
 
-    # put into curry
+    #
+    # update the curry
+    #
     receiver = CurryUser.get_by_key_name(receiver_name)
     if receiver.curry_count > 0:
         receiver.curry_material += u'、' + material_str
     else:
         receiver.curry_material = material_str
 
-    receiver.curry_count += len(material_list)
+    tmp_color = [0, 0, 0]
+    for effect in effect_list:
+        receiver.spicy *= effect.spicy
+        receiver.kal += effect.kal
+        receiver.price += effect.price
+        tmp_color[0] += effect.color[0]
+        tmp_color[1] += effect.color[1]
+        tmp_color[2] += effect.color[2]
+
+    total = receiver.curry_count + len(material_list)
+    receiver.color = [
+            int(float(receiver.color[0] * receiver.curry_count + tmp_color[0] * len(material_list))/total),
+            int(float(receiver.color[1] * receiver.curry_count + tmp_color[1] * len(material_list))/total),
+            int(float(receiver.color[2] * receiver.curry_count + tmp_color[2] * len(material_list))/total),
+            ]
+    receiver.curry_count = total
+    if state_string:
+        receiver.state_string = state_string
+
     receiver.put()
+
+    # complete the curry if the material is enough
     if receiver.curry_count >= config.CURRY_MATERIAL_MAX:
         taskqueue.add(
                 queue_name='post-queue',
@@ -229,16 +273,26 @@ def do_task_post_material(sender_name, receiver_name):
 def do_task_post_curry(username):
     user = CurryUser.get_by_key_name(username)
 
+    display_string = effects.display_effect(user)
+
     # post the tweet
     try:
         status = api.PostUpdate(
-                u'@%s の カレーは 完成した！ 今日の材料は %s' % (
+                u'@%s の カレーが できあがった！ 今日の材料は %s。 %s （%s）' % (
                     username,
-                    user.curry_material
+                    user.curry_material,
+                    display_string,
+                    user.state_string
                     )
                 )
         user.curry_count = 0
         user.curry_material = ""
+        #TODO: move to instance method
+        user.spicy = 1.0
+        user.price = 0
+        user.kal = 0
+        user.color = [128, 128, 0]
+        user.state_string = ""
         user.put()
         logging.debug("posted '%s'" % status.GetText())
     except twitter.TwitterError, e:

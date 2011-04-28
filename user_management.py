@@ -25,6 +25,11 @@ class CurryUser(db.Model):
     last_fetch = db.DateTimeProperty(auto_now_add=True)
     curry_count = db.IntegerProperty(default=0)
     curry_material = db.StringProperty(default="")
+    spicy = db.FloatProperty(default=1.0)
+    kal = db.IntegerProperty(default=0)
+    color = db.ListProperty(int, default=[128, 128, 0])
+    price = db.IntegerProperty(default=0)
+    state_string = db.StringProperty(default="")
 
 class UserLink(db.Model):
     sender = db.ReferenceProperty(CurryUser, collection_name='sender')
